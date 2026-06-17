@@ -11,5 +11,5 @@ Now, curlFolder is available in your path. For changes to take effect, restart y
 ## Uninstallation
 To uninstall, run this command:
 ```bash
-sudo rm -f /usr/local/bin/curlFolder /usr/bin/curlFolder && rm -rf ~/.setup && sed -i'' -e '/curlFolder/d' ~/.bashrc ~/.zshrc ~/.bash_profile 2>/dev/null || true
+sudo rm -f $(sudo which -a curlFolder 2>/dev/null) /usr/local/bin/curlFolder /usr/bin/curlFolder && rm -f $(which -a curlFolder 2>/dev/null) && rm -rf ~/.setup && sed -i'' -e '/curlFolder/d' ~/.bashrc ~/.zshrc ~/.bash_profile 2>/dev/null; hash -r 2>/dev/null || rehash
 ```
