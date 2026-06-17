@@ -6,6 +6,7 @@ import shutil
 import time
 import tarfile
 import zipfile
+import stat
 
 # Configuration
 VERSION = "1.0.0"
@@ -22,7 +23,7 @@ Options:
   -h, --help           Show this help message and exit.
   -v, --version        Show version information and exit.
   -q, --quiet          Enable quiet mode (suppress output).
-  -e, --extract        Automatically unpack zip, tar, tar.gz, or tgz archives.
+  -e, --extract        Unpack archives, clean up source, and make scripts executable.
 """)
 
 
@@ -99,20 +100,17 @@ def check_lock(quiet_mode=False):
             if not quiet_mode:
                 print(f"\nTimeout: Lock file has been active for over {LOCK_TIMEOUT} seconds.")
                 print("Overriding lock and continuing execution...")
-            # Break the loop to overwrite the stale lock file
             break
 
         if not quiet_mode:
-            # Print a clean, updating countdown timer on the same line
             remaining = int(LOCK_TIMEOUT - elapsed_time)
             print(f"\rWaiting for another instance to finish... ({remaining}s remaining)", end="", flush=True)
 
         time.sleep(1)
 
     if not quiet_mode and os.path.isfile(LOCK_FILE):
-        print()  # Add a newline if we printed a countdown status
+        print()
 
-    # Create the lock file and store current process ID
     try:
         with open(LOCK_FILE, "w") as f:
             f.write(str(os.getpid()))
@@ -121,14 +119,29 @@ def check_lock(quiet_mode=False):
         sys.exit(1)
 
 
+def make_scripts_executable(directory, quiet_mode=False):
+    """Recursively finds .sh files in the target directory and runs chmod +x on them."""
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".sh"):
+                file_path = os.path.join(root, file)
+                try:
+                    # Get current file permissions
+                    st = os.stat(file_path)
+                    # Use bitwise OR to add user, group, and other execute permissions
+                    os.chmod(file_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    if not quiet_mode:
+                        print(f"Made executable: {file_path}")
+                except OSError as e:
+                    print(f"Warning: Could not make {file_path} executable: {e}")
+
+
 def extract_archive(file_path, quiet_mode=False):
-    """Unpacks supported archive formats natively into ~/.setup/"""
+    """Unpacks archives, runs script permissions, and deletes the source archive."""
     if not os.path.isfile(file_path):
         return
 
-    if not quiet_mode:
-        print(f"Checking {file_path} for extraction...")
-
+    extracted = False
     try:
         # Handle zip files
         if file_path.endswith(".zip"):
@@ -136,6 +149,7 @@ def extract_archive(file_path, quiet_mode=False):
                 print("Extracting ZIP archive...")
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(SETUP_DIR)
+            extracted = True
 
         # Handle tar files (.tar, .tar.gz, .tgz)
         elif file_path.endswith((".tar", ".tar.gz", ".tgz")):
@@ -143,13 +157,23 @@ def extract_archive(file_path, quiet_mode=False):
                 print("Extracting TAR archive...")
             with tarfile.open(file_path, 'r:*') as tar_ref:
                 tar_ref.extractall(SETUP_DIR)
+            extracted = True
 
         else:
             if not quiet_mode:
                 print("Notice: File format not supported for native extraction. Skipping.")
 
+        if extracted:
+            # 1. Look for shell scripts to mark executable
+            make_scripts_executable(SETUP_DIR, quiet_mode)
+
+            # 2. Clean up and delete the source archive file
+            os.remove(file_path)
+            if not quiet_mode:
+                print(f"Cleaned up source archive: {os.path.basename(file_path)}")
+
     except Exception as e:
-        print(f"Error during archive extraction: {e}")
+        print(f"Error during archive extraction or cleanup: {e}")
 
 
 def finish_folder():
@@ -172,7 +196,6 @@ def main():
         print("Usage: curlFolder <url> [OPTIONS]")
         sys.exit(0)
 
-    # Added 'e' / 'extract' to the available option lists
     options = "hvqe"
     long_options = ["help", "version", "quiet", "extract"]
 
@@ -206,10 +229,8 @@ def main():
             if not quiet_mode:
                 print(f"Target: {target_url}")
 
-            # Run download download
             downloaded_file = download_with_curl(target_url, quiet_mode)
 
-            # Unpack the file if extraction option was flagged
             if extract_mode and downloaded_file:
                 extract_archive(downloaded_file, quiet_mode)
 
